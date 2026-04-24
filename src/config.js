@@ -18,7 +18,7 @@ export const CONFIG = {
         baseSpeed: 1.0,
         speedIncreasePerScore: 0.02,
         maxSpeed: 3.0,
-        spawnHeight: 12,
+        spawnHeight: 5,
         collapseAngleThreshold: Math.PI / 4,
         collapseVelocityThreshold: 5,
         maxBlocks: 100

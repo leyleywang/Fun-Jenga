@@ -406,7 +406,10 @@ class Game {
                 return;
             }
             
-            if (this.state !== 'playing' || !this.currentBlock) return;
+            if (this.state !== 'playing' || !this.currentBlock || !this.currentBlockBody) return;
+            if (this.currentBlockBody.isFalling) return;
+            
+            this.handleMouseMove(e);
             this.dropCurrentBlock();
         });
         
@@ -425,7 +428,13 @@ class Game {
                 return;
             }
             
-            if (this.state !== 'playing' || !this.currentBlock) return;
+            if (this.state !== 'playing' || !this.currentBlock || !this.currentBlockBody) return;
+            if (this.currentBlockBody.isFalling) return;
+            
+            const lastTouch = e.changedTouches[0];
+            if (lastTouch) {
+                this.handleMouseMove({ clientX: lastTouch.clientX, clientY: lastTouch.clientY });
+            }
             this.dropCurrentBlock();
         });
         
@@ -454,25 +463,17 @@ class Game {
         
         const rect = this.renderer.domElement.getBoundingClientRect();
         
-        this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         
-        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const limit = 6;
         
-        const blockY = this.currentBlockBody.position.y;
-        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -blockY);
+        const finalX = mouseX * limit;
+        const finalZ = -mouseY * limit;
         
-        const intersection = this.raycaster.ray.intersectPlane(plane);
-        
-        if (intersection) {
-            const limit = 6;
-            intersection.x = Math.max(-limit, Math.min(limit, intersection.x));
-            intersection.z = Math.max(-limit, Math.min(limit, intersection.z));
-            
-            this.currentBlockBody.position.x = intersection.x;
-            this.currentBlockBody.position.z = intersection.z;
-            this.currentBlock.position.copy(this.currentBlockBody.position);
-        }
+        this.currentBlockBody.position.x = finalX;
+        this.currentBlockBody.position.z = finalZ;
+        this.currentBlock.position.copy(this.currentBlockBody.position);
     }
     
     updateBlockRotation() {

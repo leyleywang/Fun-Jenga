@@ -19,6 +19,7 @@ class Game {
         this.blocks = [];
         this.currentBlock = null;
         this.currentBlockMesh = null;
+        this.currentBlockBody = null;
         
         this.scene = null;
         this.camera = null;
@@ -27,9 +28,8 @@ class Game {
         this.ground = null;
         this.groundMesh = null;
         
-        this.isDragging = false;
-        this.mouseX = 0;
-        this.mouseZ = 0;
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
         
         this.animationId = null;
         this.lastTime = 0;
@@ -68,6 +68,7 @@ class Game {
         this.world.gravity.set(0, CONFIG.PHYSICS.gravity, 0);
         this.world.broadphase = new CANNON.NaiveBroadphase();
         this.world.solver.iterations = 10;
+        this.world.allowSleep = true;
     }
     
     createGround() {
@@ -175,26 +176,47 @@ class Game {
         
         const size = this.generateBlockSize();
         const color = this.getRandomColor();
+        const spawnY = CONFIG.GAME.spawnHeight + this.height;
         
         const shape = new CANNON.Box(
             new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
         );
         
         const blockMaterial = new CANNON.Material('block');
+        const groundContactMaterial = new CANNON.ContactMaterial(
+            this.ground.material,
+            blockMaterial,
+            {
+                friction: CONFIG.BLOCK.friction,
+                restitution: CONFIG.BLOCK.restitution
+            }
+        );
+        this.world.addContactMaterial(groundContactMaterial);
+        
+        const blockContactMaterial = new CANNON.ContactMaterial(
+            blockMaterial,
+            blockMaterial,
+            {
+                friction: CONFIG.BLOCK.friction * 1.2,
+                restitution: CONFIG.BLOCK.restitution
+            }
+        );
+        this.world.addContactMaterial(blockContactMaterial);
         
         const body = new CANNON.Body({
             mass: 0,
             shape: shape,
             material: blockMaterial,
-            linearDamping: 0.3,
-            angularDamping: CONFIG.BLOCK.angularDamping
+            type: CANNON.Body.KINEMATIC
         });
         
-        body.position.set(0, CONFIG.GAME.spawnHeight + this.height, 0);
+        body.position.set(0, spawnY, 0);
         body.isFixed = false;
         body.isFalling = false;
-        
-        this.world.addBody(body);
+        body.isControlled = true;
+        body.blockMass = 1;
+        body.blockShape = shape;
+        body.blockMaterial = blockMaterial;
         
         const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
         const material = this.createBlockMaterial(color);
@@ -216,33 +238,48 @@ class Game {
         
         this.scene.add(mesh);
         
-        this.currentBlock = body;
-        this.currentBlockMesh = mesh;
+        this.currentBlock = mesh;
+        this.currentBlockBody = body;
         this.currentAngle = 0;
         
         this.updateAngleIndicator();
     }
     
     dropCurrentBlock() {
-        if (!this.currentBlock || this.currentBlock.isFalling) return;
+        if (!this.currentBlock || !this.currentBlockBody) return;
+        if (this.currentBlockBody.isFalling) return;
         
-        this.currentBlock.mass = 1;
-        this.currentBlock.updateMassProperties();
-        this.currentBlock.isFalling = true;
+        const oldBody = this.currentBlockBody;
+        const position = oldBody.position.clone();
+        const quaternion = oldBody.quaternion.clone();
         
-        const contactMaterial = new CANNON.ContactMaterial(
-            this.ground.material,
-            this.currentBlock.material,
-            {
-                friction: CONFIG.BLOCK.friction,
-                restitution: CONFIG.BLOCK.restitution
-            }
-        );
-        this.world.addContactMaterial(contactMaterial);
+        this.world.removeBody(oldBody);
+        
+        const newBody = new CANNON.Body({
+            mass: oldBody.blockMass || 1,
+            shape: oldBody.blockShape,
+            material: oldBody.blockMaterial,
+            linearDamping: 0.1,
+            angularDamping: CONFIG.BLOCK.angularDamping,
+            type: CANNON.Body.DYNAMIC
+        });
+        
+        newBody.position.copy(position);
+        newBody.quaternion.copy(quaternion);
+        newBody.isFalling = true;
+        newBody.isControlled = false;
+        newBody.isFixed = false;
+        
+        this.world.addBody(newBody);
+        
+        const blockIndex = this.blocks.findIndex(b => b.body === oldBody);
+        if (blockIndex >= 0) {
+            this.blocks[blockIndex].body = newBody;
+        }
         
         this.blocks.push({
-            body: this.currentBlock,
-            mesh: this.currentBlockMesh
+            body: newBody,
+            mesh: this.currentBlock
         });
         
         setTimeout(() => {
@@ -252,7 +289,7 @@ class Game {
         }, 1500);
         
         this.currentBlock = null;
-        this.currentBlockMesh = null;
+        this.currentBlockBody = null;
     }
     
     checkLandingAndSpawn() {
@@ -263,9 +300,9 @@ class Game {
         
         const body = lastBlock.body;
         
-        const velocityThreshold = 0.5;
+        const velocityThreshold = 0.3;
         if (Math.abs(body.velocity.y) > velocityThreshold) {
-            setTimeout(() => this.checkLandingAndSpawn(), 500);
+            setTimeout(() => this.checkLandingAndSpawn(), 300);
             return;
         }
         
@@ -286,7 +323,7 @@ class Game {
     checkCollapse() {
         const thresholdAngle = CONFIG.GAME.collapseAngleThreshold;
         
-        for (let i = Math.max(0, this.blocks.length - 3); i < this.blocks.length; i++) {
+        for (let i = Math.max(0, this.blocks.length - 5); i < this.blocks.length; i++) {
             const block = this.blocks[i];
             const body = block.body;
             
@@ -304,7 +341,7 @@ class Game {
                 return true;
             }
             
-            if (body.position.y < -1) {
+            if (body.position.y < -2) {
                 return true;
             }
         }
@@ -356,50 +393,51 @@ class Game {
             this.renderer.setSize(window.innerWidth, window.innerHeight);
         });
         
-        const canvas = document.getElementById('gameCanvas');
-        
-        canvas.addEventListener('mousemove', (e) => {
-            if (this.state !== 'playing' || !this.currentBlock) return;
+        document.addEventListener('mousemove', (e) => {
+            if (this.state !== 'playing' || !this.currentBlock || !this.currentBlockBody) return;
+            if (this.currentBlockBody.isFalling) return;
+            
             this.handleMouseMove(e);
         });
         
-        canvas.addEventListener('mousedown', () => {
-            if (this.state !== 'playing') return;
-            this.isDragging = true;
-        });
-        
-        canvas.addEventListener('mouseup', () => {
-            if (this.state !== 'playing') return;
-            if (this.isDragging) {
-                this.isDragging = false;
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.btn') || e.target.closest('.item-btn') || 
+                e.target.closest('.skin-option') || e.target.closest('.toggle')) {
+                return;
             }
-        });
-        
-        canvas.addEventListener('click', (e) => {
+            
             if (this.state !== 'playing' || !this.currentBlock) return;
             this.dropCurrentBlock();
         });
         
-        canvas.addEventListener('touchmove', (e) => {
-            if (this.state !== 'playing' || !this.currentBlock) return;
+        document.addEventListener('touchmove', (e) => {
+            if (this.state !== 'playing' || !this.currentBlock || !this.currentBlockBody) return;
+            if (this.currentBlockBody.isFalling) return;
+            
             e.preventDefault();
             const touch = e.touches[0];
             this.handleMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
         }, { passive: false });
         
-        canvas.addEventListener('touchend', (e) => {
+        document.addEventListener('touchend', (e) => {
+            if (e.target.closest('.btn') || e.target.closest('.item-btn') || 
+                e.target.closest('.skin-option') || e.target.closest('.toggle')) {
+                return;
+            }
+            
             if (this.state !== 'playing' || !this.currentBlock) return;
             this.dropCurrentBlock();
         });
         
         window.addEventListener('keydown', (e) => {
             if (this.state !== 'playing' || !this.currentBlock) return;
+            if (this.currentBlockBody && this.currentBlockBody.isFalling) return;
             
             if (e.key === 'ArrowLeft') {
-                this.currentAngle -= 0.1;
+                this.currentAngle -= 0.15;
                 this.updateBlockRotation();
             } else if (e.key === 'ArrowRight') {
-                this.currentAngle += 0.1;
+                this.currentAngle += 0.15;
                 this.updateBlockRotation();
             } else if (e.key === ' ') {
                 e.preventDefault();
@@ -411,44 +449,40 @@ class Game {
     }
     
     handleMouseMove(e) {
-        if (!this.currentBlock) return;
+        if (!this.currentBlock || !this.currentBlockBody) return;
+        if (this.currentBlockBody.isFalling) return;
         
         const rect = this.renderer.domElement.getBoundingClientRect();
-        const mouse = new THREE.Vector2();
         
-        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         
-        const plane = new THREE.Plane(
-            new THREE.Vector3(0, 1, 0),
-            -this.currentBlock.position.y
-        );
+        this.raycaster.setFromCamera(this.mouse, this.camera);
         
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(mouse, this.camera);
+        const blockY = this.currentBlockBody.position.y;
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -blockY);
         
-        const intersection = new THREE.Vector3();
-        raycaster.ray.intersectPlane(plane, intersection);
+        const intersection = this.raycaster.ray.intersectPlane(plane);
         
         if (intersection) {
-            const limit = 5;
+            const limit = 6;
             intersection.x = Math.max(-limit, Math.min(limit, intersection.x));
             intersection.z = Math.max(-limit, Math.min(limit, intersection.z));
             
-            this.currentBlock.position.x = intersection.x;
-            this.currentBlock.position.z = intersection.z;
-            this.currentBlockMesh.position.copy(this.currentBlock.position);
+            this.currentBlockBody.position.x = intersection.x;
+            this.currentBlockBody.position.z = intersection.z;
+            this.currentBlock.position.copy(this.currentBlockBody.position);
         }
     }
     
     updateBlockRotation() {
-        if (!this.currentBlock || !this.currentBlockMesh) return;
+        if (!this.currentBlock || !this.currentBlockBody) return;
         
         const quaternion = new THREE.Quaternion();
         quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.currentAngle);
         
+        this.currentBlockBody.quaternion.copy(quaternion);
         this.currentBlock.quaternion.copy(quaternion);
-        this.currentBlockMesh.quaternion.copy(quaternion);
         
         this.updateAngleIndicator();
     }
@@ -534,8 +568,8 @@ class Game {
         const lastBlock = this.blocks[this.blocks.length - 1];
         if (lastBlock) {
             lastBlock.body.isFixed = true;
-            lastBlock.body.linearDamping = 0.9;
-            lastBlock.body.angularDamping = 0.9;
+            lastBlock.body.linearDamping = 0.99;
+            lastBlock.body.angularDamping = 0.99;
             lastBlock.body.velocity.set(0, 0, 0);
             lastBlock.body.angularVelocity.set(0, 0, 0);
             
@@ -672,19 +706,22 @@ class Game {
         }
         this.blocks = [];
         
-        if (this.currentBlock) {
-            this.world.removeBody(this.currentBlock);
-            this.currentBlock = null;
+        if (this.currentBlockBody) {
+            this.world.removeBody(this.currentBlockBody);
+            this.currentBlockBody = null;
         }
         
-        if (this.currentBlockMesh) {
-            this.scene.remove(this.currentBlockMesh);
-            this.currentBlockMesh = null;
+        if (this.currentBlock) {
+            this.scene.remove(this.currentBlock);
+            this.currentBlock = null;
         }
         
         this.isSlowMode = false;
         this.world.gravity.set(0, CONFIG.PHYSICS.gravity, 0);
         document.getElementById('slowBtn').classList.remove('active');
+        
+        this.camera.position.set(0, 8, 15);
+        this.camera.lookAt(0, 3, 0);
     }
     
     updateUI() {
@@ -749,20 +786,23 @@ class Game {
     animate(currentTime = 0) {
         this.animationId = requestAnimationFrame((time) => this.animate(time));
         
-        const deltaTime = (currentTime - this.lastTime) / 1000;
+        const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.05);
         this.lastTime = currentTime;
         
         if (this.state === 'playing') {
             this.world.step(CONFIG.PHYSICS.fixedTimeStep, deltaTime, CONFIG.PHYSICS.maxSubSteps);
             
             for (const block of this.blocks) {
+                if (block.body.isControlled) continue;
                 block.mesh.position.copy(block.body.position);
                 block.mesh.quaternion.copy(block.body.quaternion);
             }
             
-            if (this.currentBlock && this.currentBlockMesh) {
-                this.currentBlockMesh.position.copy(this.currentBlock.position);
-                this.currentBlockMesh.quaternion.copy(this.currentBlock.quaternion);
+            if (this.currentBlock && this.currentBlockBody) {
+                if (this.currentBlockBody.isFalling) {
+                    this.currentBlock.position.copy(this.currentBlockBody.position);
+                    this.currentBlock.quaternion.copy(this.currentBlockBody.quaternion);
+                }
             }
             
             this.updateCamera();

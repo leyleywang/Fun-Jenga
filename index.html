@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>趣味叠叠乐 - Fun Jenga</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        #gameCanvas {
+            display: block;
+        }
+        
+        .ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .ui-container > * {
+            pointer-events: auto;
+        }
+        
+        .game-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .game-info p {
+            margin: 8px 0;
+        }
+        
+        .game-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .items-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 25px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .item-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 80px;
+        }
+        
+        .item-btn:hover:not(.disabled) {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-3px);
+        }
+        
+        .item-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .item-btn.active {
+            border-color: #4ade80;
+            background: rgba(74, 222, 128, 0.2);
+        }
+        
+        .item-icon {
+            font-size: 24px;
+        }
+        
+        .item-name {
+            font-size: 12px;
+        }
+        
+        .item-count {
+            font-size: 11px;
+            color: #ffd700;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        
+        .overlay.hidden {
+            display: none;
+        }
+        
+        .menu-panel {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            max-width: 400px;
+            width: 90%;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .menu-panel h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        .menu-panel h2 {
+            font-size: 28px;
+            margin-bottom: 30px;
+        }
+        
+        .menu-panel .score-info {
+            margin: 20px 0;
+            font-size: 20px;
+        }
+        
+        .menu-panel .buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        
+        .menu-panel .btn {
+            padding: 15px 40px;
+            font-size: 18px;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .menu-panel .btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .skin-selector {
+            margin: 20px 0;
+        }
+        
+        .skin-selector label {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .skin-options {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        
+        .skin-option {
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .skin-option:hover {
+            transform: translateY(-2px);
+        }
+        
+        .skin-option.selected {
+            border-color: white;
+        }
+        
+        .skin-simple {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .skin-cartoon {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .skin-vintage {
+            background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+        }
+        
+        .ad-panel {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            color: white;
+            max-width: 350px;
+        }
+        
+        .ad-panel h3 {
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        
+        .ad-timer {
+            font-size: 48px;
+            color: #ffd700;
+            margin: 20px 0;
+        }
+        
+        .angle-indicator {
+            position: absolute;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            color: white;
+            font-size: 16px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+        
+        .angle-indicator p {
+            margin: 5px 0;
+        }
+        
+        .angle-value {
+            font-size: 24px;
+            color: #4ade80;
+            font-weight: bold;
+        }
+        
+        .angle-hint {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 10px;
+        }
+        
+        .new-record {
+            color: #ffd700;
+            font-size: 24px;
+            margin: 15px 0;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .settings-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 30px;
+            border-radius: 15px;
+            color: white;
+            max-width: 500px;
+            width: 90%;
+            backdrop-filter: blur(10px);
+        }
+        
+        .settings-panel h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .setting-item {
+            margin: 15px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .setting-item label {
+            font-size: 16px;
+        }
+        
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 24px;
+            background: #ccc;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .toggle.active {
+            background: #4ade80;
+        }
+        
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+        
+        .toggle.active::after {
+            transform: translateX(26px);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="ui-container">
+        <!-- 游戏信息 -->
+        <div class="game-info" id="gameInfo">
+            <p>🎯 得分: <span id="score">0</span></p>
+            <p>📏 高度: <span id="height">0</span>m</p>
+            <p>⏱️ 速度: <span id="speed">1.0</span>x</p>
+            <p>🏆 最高分: <span id="highScore">0</span></p>
+        </div>
+        
+        <!-- 游戏控制 -->
+        <div class="game-controls" id="gameControls">
+            <button class="btn" id="pauseBtn">⏸️ 暂停</button>
+            <button class="btn" id="settingsBtn">⚙️ 设置</button>
+        </div>
+        
+        <!-- 角度指示器 -->
+        <div class="angle-indicator" id="angleIndicator">
+            <p>旋转角度</p>
+            <div class="angle-value" id="angleValue">0°</div>
+            <div class="angle-hint">← → 键旋转积木</div>
+        </div>
+        
+        <!-- 道具面板 -->
+        <div class="items-panel" id="itemsPanel">
+            <button class="item-btn" id="fixBtn">
+                <span class="item-icon">🧱</span>
+                <span class="item-name">固定积木</span>
+                <span class="item-count">x<span id="fixCount">0</span></span>
+            </button>
+            <button class="item-btn" id="slowBtn">
+                <span class="item-icon">⏳</span>
+                <span class="item-name">减速卡</span>
+                <span class="item-count">x<span id="slowCount">0</span></span>
+            </button>
+            <button class="item-btn" id="watchAdBtn">
+                <span class="item-icon">📺</span>
+                <span class="item-name">看广告</span>
+                <span class="item-count">得道具</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- 开始界面 -->
+    <div class="overlay" id="startScreen">
+        <div class="menu-panel">
+            <h1>🎮 趣味叠叠乐</h1>
+            <p style="margin-bottom: 20px; font-size: 16px; line-height: 1.6;">
+                点击屏幕控制积木掉落位置<br>
+                用键盘←→键调整角度<br>
+                平稳堆叠，挑战更高高度！
+            </p>
+            
+            <div class="skin-selector">
+                <label>选择皮肤风格:</label>
+                <div class="skin-options">
+                    <div class="skin-option skin-simple selected" data-skin="simple">简约</div>
+                    <div class="skin-option skin-cartoon" data-skin="cartoon">卡通</div>
+                    <div class="skin-option skin-vintage" data-skin="vintage">复古</div>
+                </div>
+            </div>
+            
+            <div class="score-info">
+                <p>🏆 历史最高分: <span id="menuHighScore">0</span></p>
+            </div>
+            
+            <div class="buttons">
+                <button class="btn" id="startBtn">开始游戏</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 暂停界面 -->
+    <div class="overlay hidden" id="pauseScreen">
+        <div class="menu-panel">
+            <h2>⏸️ 游戏暂停</h2>
+            <div class="buttons">
+                <button class="btn" id="resumeBtn">继续游戏</button>
+                <button class="btn" id="restartBtn">重新开始</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 游戏结束界面 -->
+    <div class="overlay hidden" id="gameOverScreen">
+        <div class="menu-panel">
+            <h2>💥 游戏结束</h2>
+            <div class="new-record hidden" id="newRecordBadge">🎉 新纪录！</div>
+            <div class="score-info">
+                <p>本次得分: <span id="finalScore">0</span></p>
+                <p>最终高度: <span id="finalHeight">0</span>m</p>
+                <p>🏆 最高分: <span id="gameOverHighScore">0</span></p>
+            </div>
+            <div class="buttons">
+                <button class="btn" id="playAgainBtn">再来一局</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 广告界面 -->
+    <div class="overlay hidden" id="adScreen">
+        <div class="ad-panel">
+            <h3>📺 观看广告获得道具</h3>
+            <p>感谢您的支持！</p>
+            <div class="ad-timer" id="adTimer">5</div>
+            <p style="font-size: 14px; color: rgba(255,255,255,0.7);">
+                观看结束后将获得随机道具
+            </p>
+        </div>
+    </div>
+    
+    <!-- 设置界面 -->
+    <div class="overlay hidden" id="settingsScreen">
+        <div class="settings-panel">
+            <h2>⚙️ 游戏设置</h2>
+            
+            <div class="setting-item">
+                <label>🔊 音效</label>
+                <div class="toggle active" id="soundToggle"></div>
+            </div>
+            
+            <div class="setting-item">
+                <label>🎨 粒子效果</label>
+                <div class="toggle active" id="particlesToggle"></div>
+            </div>
+            
+            <div class="setting-item">
+                <label>📱 触觉反馈</label>
+                <div class="toggle" id="hapticToggle"></div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn" id="closeSettingsBtn">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./src/game.js"></script>
+</body>
+</html>
